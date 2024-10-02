@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lodhiappy Birds</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            background-color: #1E90FF; /* DodgerBlue */
+            display: block;
+            margin: 0 auto;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #overlay button {
+            padding: 10px 20px;
+            font-size: 18px;
+            margin: 10px;
+        }
+        #startScreen, #gameOverScreen {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+        #startScreen h1, #gameOverScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        #speedControls button {
+            margin: 5px;
+            padding: 10px;
+            font-size: 18px;
+        }
+        #gameOverScreen ul {
+            list-style: none;
+            padding: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        #gameOverScreen li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="500" height="700"></canvas>
+    <div id="overlay">
+        <div id="startScreen">
+            <h1>Lodhiappy Birds</h1>
+            <div>
+                <p>Select Speed:</p>
+                <div id="speedControls">
+                    <button data-speed="1">1</button>
+                    <button data-speed="2">2</button>
+                    <button data-speed="3">3</button>
+                    <button data-speed="4">4</button>
+                    <button data-speed="5">5</button>
+                </div>
+            </div>
+            <button id="startButton">Start</button>
+        </div>
+        <div id="pauseScreen">
+            <h1>Paused</h1>
+            <button id="continueButton">Continue</button>
+            <button id="restartButton">Restart</button>
+        </div>
+        <div id="gameOverScreen">
+            <h1>Game Over</h1>
+            <p>Your Score: <span id="finalScore"></span></p>
+            <div id="practiceSection">
+                <h2>Practice These Factors</h2>
+                <ul id="wrongQuestionsList"></ul>
+            </div>
+            <button id="restartButtonGameOver">Restart</button>
+            <button id="quitButton">Quit</button>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript Code
+        (function() {
+            // Canvas setup
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Game variables
+            let gameState = 'welcome'; // welcome, playing, paused, gameover
+            let bird = { x: 100, y: canvas.height / 2, width: 40, height: 30, vy: 0 };
+            let gravity = 0.5;
+            let flapStrength = -10;
+            let speedMultiplier = 3;
+            let lives = 10;
+            let score = 0;
+            let correctAnswers = 0;
+            let level = 1;
+            let maxNumber = 20;
+            let question = null;
+            let options = [];
+            let correctOption = null;
+            let blocks = [];
+            let animations = [];
+            let keys = {};
+            let countdown = 3;
+            let countdownInterval = null;
+            let wrongQuestions = [];
+
+            // DOM elements
+            const overlay = document.getElementById('overlay');
+            const startScreen = document.getElementById('startScreen');
+            const pauseScreen = document.getElementById('pauseScreen');
+            const gameOverScreen = document.getElementById('gameOverScreen');
+            const startButton = document.getElementById('startButton');
+            const continueButton = document.getElementById('continueButton');
+            const restartButton = document.getElementById('restartButton');
+            const restartButtonGameOver = document.getElementById('restartButtonGameOver');
+            const quitButton = document.getElementById('quitButton');
+            const speedControls = document.getElementById('speedControls');
+            const finalScore = document.getElementById('finalScore');
+            const wrongQuestionsList = document.getElementById('wrongQuestionsList');
+
+            // Event listeners
+            document.addEventListener('keydown', function(e) {
+                keys[e.code] = true;
+                if (gameState === 'playing') {
+                    if (e.code === 'Space') {
+                        bird.vy = flapStrength;
+                    } else if (e.code === 'Escape') {
+                        pauseGame();
+                    }
+                } else if (gameState === 'paused') {
+                    if (e.code === 'KeyC') {
+                        resumeGame();
+                    } else if (e.code === 'KeyR') {
+                        restartGame();
+                    }
+                }
+            });
+            document.addEventListener('keyup', function(e) {
+                keys[e.code] = false;
+            });
+
+            startButton.addEventListener('click', startGame);
+            continueButton.addEventListener('click', resumeGame);
+            restartButton.addEventListener('click', restartGame);
+            restartButtonGameOver.addEventListener('click', restartGame);
+            quitButton.addEventListener('click', function() {
+                location.reload();
+            });
+            speedControls.addEventListener('click', function(e) {
+                if (e.target.tagName === 'BUTTON') {
+                    speedMultiplier = parseInt(e.target.getAttribute('data-speed'));
+                    Array.from(speedControls.children).forEach(btn => btn.style.backgroundColor = '');
+                    e.target.style.backgroundColor = 'green';
+                }
+            });
+
+            // Start game function
+            function startGame() {
+                overlay.style.display = 'none';
+                gameState = 'countdown';
+                countdown = 3;
+                countdownInterval = setInterval(function() {
+                    countdown--;
+                    if (countdown === 0) {
+                        clearInterval(countdownInterval);
+                        gameState = 'playing';
+                        generateQuestion();
+                        gameLoop();
+                    }
+                }, 1000);
+            }
+
+            // Pause and resume functions
+            function pauseGame() {
+                gameState = 'paused';
+                overlay.style.display = 'flex';
+                pauseScreen.style.display = 'flex';
+            }
+
+            function resumeGame() {
+                gameState = 'playing';
+                overlay.style.display = 'none';
+                pauseScreen.style.display = 'none';
+                gameLoop();
+            }
+
+            // Restart game
+            function restartGame() {
+                location.reload();
+            }
+
+            // Game loop
+            function gameLoop() {
+                if (gameState === 'playing') {
+                    update();
+                    draw();
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+
+            // Update game state
+            function update() {
+                // Bird physics
+                bird.vy += gravity;
+                bird.y += bird.vy;
+
+                // Vertical wrapping
+                if (bird.y > canvas.height) {
+                    bird.y = 0;
+                } else if (bird.y < 0) {
+                    bird.y = canvas.height;
+                }
+
+                // Move blocks
+                blocks.forEach(block => {
+                    block.x -= speedMultiplier;
+                });
+
+                // Check collisions
+                blocks.forEach((block, index) => {
+                    if (isColliding(bird, block)) {
+                        if (block.isCorrect) {
+                            score++;
+                            correctAnswers++;
+                            lives += (correctAnswers % 5 === 0 && lives < 10) ? 1 : 0;
+                            animations.push({ x: block.x, y: block.y, type: 'correct', timer: 0 });
+                        } else {
+                            lives--;
+                            wrongQuestions.push({ question, correctAnswer: correctOption });
+                            animations.push({ x: block.x, y: block.y, type: 'wrong', timer: 0 });
+                        }
+                        blocks.splice(index, 1);
+                        if (lives <= 0) {
+                            gameOver();
+                        } else {
+                            generateQuestion();
+                        }
+                    } else if (block.x + block.width < 0) {
+                        // Block missed, repeat question
+                        blocks.splice(index, 1);
+                        generateQuestion();
+                    }
+                });
+
+                // Update animations
+                animations = animations.filter(anim => anim.timer < 30);
+                animations.forEach(anim => anim.timer++);
+
+                // Level progression
+                if (correctAnswers >= 20) {
+                    level++;
+                    correctAnswers = 0;
+                    maxNumber = 10 * level + 10;
+                }
+            }
+
+            // Draw game elements
+            function draw() {
+                // Clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw bird
+                ctx.fillStyle = 'yellow';
+                ctx.fillRect(bird.x, bird.y, bird.width, bird.height);
+
+                // Draw question
+                ctx.fillStyle = 'white';
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`Find factors of: ${question}`, canvas.width / 2, 50);
+
+                // Draw blocks
+                blocks.forEach(block => {
+                    ctx.fillStyle = 'gray';
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(block.number, block.x + block.width / 2, block.y + block.height / 2 + 8);
+                });
+
+                // Draw animations
+                animations.forEach(anim => {
+                    if (anim.type === 'correct') {
+                        ctx.fillStyle = 'green';
+                        ctx.font = '30px Arial';
+                        ctx.fillText('✓', anim.x + 30, anim.y + 40);
+                    } else {
+                        ctx.fillStyle = 'red';
+                        ctx.font = '30px Arial';
+                        ctx.fillText('✗', anim.x + 30, anim.y + 40);
+                    }
+                });
+
+                // Draw lives and score
+                ctx.fillStyle = 'white';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Lives: ${lives}`, 10, 30);
+                ctx.textAlign = 'right';
+                ctx.fillText(`Score: ${score}`, canvas.width - 10, 30);
+
+                // Draw countdown if in countdown state
+                if (gameState === 'countdown') {
+                    ctx.fillStyle = 'white';
+                    ctx.font = '48px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(countdown, canvas.width / 2, canvas.height / 2);
+                    ctx.font = '24px Arial';
+                    ctx.fillText('Press SPACE to flap', canvas.width / 2, canvas.height / 2 + 40);
+                }
+            }
+
+            // Collision detection
+            function isColliding(rect1, rect2) {
+                return rect1.x < rect2.x + rect2.width &&
+                       rect1.x + rect1.width > rect2.x &&
+                       rect1.y < rect2.y + rect2.height &&
+                       rect1.y + rect1.height > rect2.y;
+            }
+
+            // Generate new question and options
+            function generateQuestion() {
+                question = getRandomNumber(maxNumber - 10 * (level - 1), maxNumber);
+                correctOption = getRandomFactor(question);
+                let incorrectOption;
+                do {
+                    incorrectOption = getRandomNumber(2, maxNumber);
+                } while (incorrectOption === correctOption || incorrectOption === question || incorrectOption === 1 || question % incorrectOption === 0);
+                options = [correctOption, incorrectOption];
+                options.sort(() => Math.random() - 0.5);
+                createBlocks();
+            }
+
+            // Create blocks with options
+            function createBlocks() {
+                blocks = [];
+                const spacing = 150;
+                const positions = [
+                    { x: canvas.width, y: canvas.height / 2 - spacing },
+                    { x: canvas.width, y: canvas.height / 2 + spacing }
+                ];
+                options.forEach((number, index) => {
+                    blocks.push({
+                        x: positions[index].x,
+                        y: positions[index].y,
+                        width: 60,
+                        height: 60,
+                        number,
+                        isCorrect: number === correctOption
+                    });
+                });
+            }
+
+            // Get random number within a range
+            function getRandomNumber(min, max) {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            }
+
+            // Get random factor of a number
+            function getRandomFactor(n) {
+                let factors = [];
+                for (let i = 2; i <= n / 2; i++) {
+                    if (n % i === 0) factors.push(i);
+                }
+                if (factors.length === 0) return n; // If prime, return the number itself
+                return factors[Math.floor(Math.random() * factors.length)];
+            }
+
+            // Game over function
+            function gameOver() {
+                gameState = 'gameover';
+                overlay.style.display = 'flex';
+                gameOverScreen.style.display = 'flex';
+                finalScore.textContent = score;
+                wrongQuestionsList.innerHTML = '';
+                wrongQuestions.forEach(q => {
+                    let li = document.createElement('li');
+                    let factors = getAllFactors(q.question);
+                    li.textContent = `${q.question} = ${factors.join(', ')}`;
+                    wrongQuestionsList.appendChild(li);
+                });
+            }
+
+            // Get all factors of a number
+            function getAllFactors(n) {
+                let factors = [];
+                for (let i = 1; i <= n; i++) {
+                    if (n % i === 0) factors.push(i);
+                }
+                return factors;
+            }
+
+            // Initialize game
+            function init() {
+                overlay.style.display = 'flex';
+                startScreen.style.display = 'flex';
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>
